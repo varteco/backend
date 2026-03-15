@@ -17,7 +17,7 @@ connectDB();
 
 // Middleware
 app.use(cors({
-  origin: '*',
+  origin: process.env.CORS_ORIGIN || '*',
   credentials: true,
 }));
 app.use(bodyParser.json());
