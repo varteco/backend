@@ -5,12 +5,7 @@ const bodyParser = require('body-parser');
 const connectDB = require('./config/database');
 const errorHandler = require('./middleware/errorHandler');
 
-const path = require('path');
-
 const app = express();
-
-// Serve static files from frontend
-app.use(express.static(path.join(__dirname, '../frontend')));
 
 // Connect to MongoDB
 connectDB();
@@ -32,11 +27,6 @@ app.use('/api/admin', require('./routes/admin'));
 // Health check
 app.get('/api/health', (req, res) => {
   res.json({ message: 'Server is running' });
-});
-
-// Root route - serve index.html
-app.get('/', (req, res) => {
-  res.sendFile(path.join(__dirname, '../frontend/index.html'));
 });
 
 // Error handling middleware
