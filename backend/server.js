@@ -10,6 +10,11 @@ const app = express();
 // Connect to MongoDB
 connectDB();
 
+const app = express();
+
+// Stripe webhook - must be before body-parser
+app.use('/api/webhook', require('./routes/webhook'));
+
 // Middleware
 app.use(cors({
   origin: process.env.CORS_ORIGIN || '*',
@@ -23,6 +28,7 @@ app.use('/api/auth', require('./routes/auth'));
 app.use('/api/products', require('./routes/products'));
 app.use('/api/orders', require('./routes/orders'));
 app.use('/api/admin', require('./routes/admin'));
+app.use('/api/checkout', require('./routes/checkout'));
 
 // Health check
 app.get('/api/health', (req, res) => {
