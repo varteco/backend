@@ -10,8 +10,6 @@ const app = express();
 // Connect to MongoDB
 connectDB();
 
-const app = express();
-
 // Stripe webhook - must be before body-parser
 app.use('/api/webhook', require('./routes/webhook'));
 
