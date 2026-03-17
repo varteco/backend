@@ -150,6 +150,10 @@ router.post('/customer-login', async (req, res) => {
         email: user.email,
         name: user.name,
         phone: user.phone,
+        address: user.address,
+        city: user.city,
+        state: user.state,
+        zip: user.zip,
         role: user.role
       }
     });
@@ -160,6 +164,42 @@ router.post('/customer-login', async (req, res) => {
 
 router.get('/me', auth, async (req, res) => {
   res.json(req.user);
+});
+
+// Update customer profile
+router.put('/profile', auth, async (req, res) => {
+  try {
+    const { name, phone, address, city, state, zip } = req.body;
+    
+    const user = await User.findById(req.user._id);
+    if (!user) {
+      return res.status(404).json({ message: 'User not found' });
+    }
+    
+    if (name) user.name = name;
+    if (phone) user.phone = phone;
+    if (address) user.address = address;
+    if (city) user.city = city;
+    if (state) user.state = state;
+    if (zip) user.zip = zip;
+    
+    await user.save();
+    
+    res.json({
+      id: user._id,
+      username: user.username,
+      email: user.email,
+      name: user.name,
+      phone: user.phone,
+      address: user.address,
+      city: user.city,
+      state: user.state,
+      zip: user.zip,
+      role: user.role
+    });
+  } catch (error) {
+    res.status(500).json({ message: 'Error updating profile', error: error.message });
+  }
 });
 
 // Seed admin

@@ -1,15 +1,20 @@
 const express = require('express');
 const router = express.Router();
-const stripe = require('stripe')(process.env.STRIPE_SECRET_KEY);
 const Order = require('../models/Order');
 const Product = require('../models/Product');
+
+const stripe = require('stripe')(process.env.STRIPE_SECRET_KEY);
 
 router.post('/', async (req, res) => {
   try {
     const { customer, items } = req.body;
 
     if (!customer || !items || items.length === 0) {
-      return res.status(400).json({ message: 'Missing required fields' });
+      return res.status(400).json({ message: 'Missing required fields: customer, items' });
+    }
+
+    if (!customer.name || !customer.email || !customer.phone) {
+      return res.status(400).json({ message: 'Please fill in all customer details' });
     }
 
     let totalAmount = 0;
@@ -18,7 +23,11 @@ router.post('/', async (req, res) => {
     for (const item of items) {
       let product = null;
       if (item.productId && item.productId.length === 24) {
-        product = await Product.findById(item.productId);
+        try {
+          product = await Product.findById(item.productId);
+        } catch (e) {
+          product = null;
+        }
       }
 
       if (product) {
@@ -47,7 +56,12 @@ router.post('/', async (req, res) => {
 
     const order = new Order({
       orderId,
-      customer,
+      customer: {
+        name: customer.name,
+        email: customer.email,
+        phone: customer.phone,
+        address: customer.address || ''
+      },
       items: processedItems,
       totalAmount,
       paymentMethod: 'stripe',
@@ -55,6 +69,17 @@ router.post('/', async (req, res) => {
     });
 
     await order.save();
+
+    // If Stripe is not configured, return order info so frontend can handle it
+    if (!process.env.STRIPE_SECRET_KEY || process.env.STRIPE_SECRET_KEY === 'sk_test_your_stripe_secret_key') {
+      return res.json({ 
+        success: true, 
+        orderId: order._id,
+        orderIdFormatted: orderId,
+        totalAmount,
+        message: 'Order created successfully. Payment integration pending.'
+      });
+    }
 
     const session = await stripe.checkout.sessions.create({
       payment_method_types: ['card'],
@@ -67,13 +92,14 @@ router.post('/', async (req, res) => {
         quantity: item.quantity,
       })),
       mode: 'payment',
-      success_url: `${process.env.CLIENT_URL}/order-success?orderId=${order._id}`,
+      success_url: `${process.env.CLIENT_URL}/order-success.html?orderId=${order._id}`,
       cancel_url: `${process.env.CLIENT_URL}/pay.html?orderId=${order._id}`,
       metadata: { orderId: order._id.toString() },
     });
 
     res.json({ sessionId: session.id, url: session.url, orderId: order._id });
   } catch (error) {
+    console.error('Checkout error:', error);
     res.status(500).json({ message: 'Error creating checkout session', error: error.message });
   }
 });
