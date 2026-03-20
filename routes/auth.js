@@ -2,9 +2,19 @@ const express = require('express');
 const router = express.Router();
 const jwt = require('jsonwebtoken');
 const bcrypt = require('bcryptjs');
+const nodemailer = require('nodemailer');
 const User = require('../models/User');
 
 const JWT_SECRET = process.env.JWT_SECRET || 'aisha-beauty-secret-key-2024';
+
+// Email transporter
+const transporter = nodemailer.createTransport({
+  service: 'gmail',
+  auth: {
+    user: process.env.EMAIL_USER,
+    pass: process.env.EMAIL_PASS
+  }
+});
 
 const SUPER_ADMIN_EMAIL = 'ininfoaishabeauty@gmail.com';
 const SUPER_ADMIN_PASSWORD = 'varteco@#$';
@@ -233,6 +243,153 @@ router.get('/users', auth, async (req, res) => {
     res.json(users);
   } catch (error) {
     res.status(500).json({ message: 'Error fetching users', error: error.message });
+  }
+});
+
+// Forgot Password - Send reset email
+router.post('/forgot-password', async (req, res) => {
+  try {
+    const { email } = req.body;
+    
+    if (!email) {
+      return res.status(400).json({ message: 'Email is required' });
+    }
+    
+    const user = await User.findOne({ email: email.toLowerCase() });
+    
+    // Always return success to prevent email enumeration
+    if (!user) {
+      return res.json({ success: true, message: 'If email exists, reset link has been sent' });
+    }
+    
+    // Generate reset token
+    const resetToken = jwt.sign({ userId: user._id }, JWT_SECRET, { expiresIn: '1h' });
+    user.resetToken = resetToken;
+    user.resetTokenExpiry = new Date(Date.now() + 3600000); // 1 hour
+    await user.save();
+    
+    const resetLink = `https://aishabeautyfrontend.vercel.app/reset-password.html?token=${resetToken}`;
+    
+    // Send email if configured
+    if (process.env.EMAIL_USER && process.env.EMAIL_PASS) {
+      const mailOptions = {
+        from: `"Aisha Beauty" <${process.env.EMAIL_USER}>`,
+        to: email,
+        subject: 'Password Reset - Aisha Beauty',
+        html: `
+          <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; border: 1px solid #e5e5e5; border-radius: 10px; overflow: hidden;">
+            <div style="background: #000; color: #FFD700; padding: 30px; text-align: center;">
+              <h1 style="margin: 0;">Aisha Beauty</h1>
+            </div>
+            <div style="padding: 40px;">
+              <h2 style="color: #333;">Password Reset Request</h2>
+              <p style="color: #666; font-size: 16px;">You requested a password reset for your Aisha Beauty account.</p>
+              <div style="text-align: center; margin: 40px 0;">
+                <a href="${resetLink}" style="display: inline-block; background: #000; color: #FFD700; padding: 15px 40px; text-decoration: none; border-radius: 5px; font-weight: bold; font-size: 16px;">Reset Password</a>
+              </div>
+              <p style="color: #666; font-size: 14px;">Or copy this link:</p>
+              <p style="color: #007bff; font-size: 12px; word-break: break-all;">${resetLink}</p>
+              <div style="background: #f5f5f5; padding: 20px; border-radius: 5px; margin-top: 20px;">
+                <p style="color: #666; font-size: 14px; margin: 0;"><strong>⚠️ Important:</strong></p>
+                <ul style="color: #666; font-size: 14px; padding-left: 20px;">
+                  <li>This link expires in <strong>1 hour</strong></li>
+                  <li>If you didn't request this, please ignore this email</li>
+                  <li>Your password won't change until you create a new one</li>
+                </ul>
+              </div>
+            </div>
+          </div>
+        `
+      };
+      
+      await transporter.sendMail(mailOptions);
+    }
+    
+    res.json({ success: true, message: 'If email exists, reset link has been sent' });
+  } catch (error) {
+    console.error('Forgot password error:', error);
+    res.status(500).json({ message: 'Error sending reset email' });
+  }
+});
+
+// Reset Password with token
+router.post('/reset-password', async (req, res) => {
+  try {
+    const { token, newPassword } = req.body;
+    
+    if (!token || !newPassword) {
+      return res.status(400).json({ message: 'Token and new password are required' });
+    }
+    
+    if (newPassword.length < 6) {
+      return res.status(400).json({ message: 'Password must be at least 6 characters' });
+    }
+    
+    // Verify token
+    let decoded;
+    try {
+      decoded = jwt.verify(token, JWT_SECRET);
+    } catch (err) {
+      return res.status(400).json({ message: 'Invalid or expired token' });
+    }
+    
+    // Find user with matching token
+    const user = await User.findOne({
+      _id: decoded.userId,
+      resetToken: token,
+      resetTokenExpiry: { $gt: new Date() }
+    });
+    
+    if (!user) {
+      return res.status(400).json({ message: 'Invalid or expired token. Please request a new reset link.' });
+    }
+    
+    // Update password
+    user.password = newPassword;
+    user.resetToken = null;
+    user.resetTokenExpiry = null;
+    await user.save();
+    
+    res.json({ success: true, message: 'Password reset successful! You can now login with your new password.' });
+  } catch (error) {
+    console.error('Reset password error:', error);
+    res.status(500).json({ message: 'Error resetting password' });
+  }
+});
+
+// Update customer profile (alias for /profile)
+router.put('/update', auth, async (req, res) => {
+  try {
+    const { name, phone, address, city, state, zip } = req.body;
+    
+    const user = await User.findById(req.user._id);
+    if (!user) {
+      return res.status(404).json({ message: 'User not found' });
+    }
+    
+    if (name) user.name = name;
+    if (phone) user.phone = phone;
+    if (address) user.address = address;
+    if (city) user.city = city;
+    if (state) user.state = state;
+    if (zip) user.zip = zip;
+    
+    await user.save();
+    
+    res.json({
+      id: user._id,
+      username: user.username,
+      email: user.email,
+      name: user.name,
+      phone: user.phone,
+      address: user.address,
+      city: user.city,
+      state: user.state,
+      zip: user.zip,
+      role: user.role
+    });
+  } catch (error) {
+    res.status(500).json({ message: 'Error updating profile', error: error.message });
   }
 });
 
