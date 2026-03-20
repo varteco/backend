@@ -1,15 +1,32 @@
 const express = require('express');
 const router = express.Router();
 const mongoose = require('mongoose');
+const jwt = require('jsonwebtoken');
 const Order = require('../models/Order');
 const Product = require('../models/Product');
 
-// Get all orders
-router.get('/', async (req, res) => {
+const JWT_SECRET = process.env.JWT_SECRET || 'aisha-beauty-secret-key-2024';
+
+// Customer auth middleware
+const customerAuth = async (req, res, next) => {
   try {
-    const orders = await Order.find()
-      .populate('items.product')
-      .sort({ orderDate: -1 });
+    const token = req.header('Authorization')?.replace('Bearer ', '');
+    if (!token) {
+      return res.status(401).json({ message: 'Authentication required' });
+    }
+    const decoded = jwt.verify(token, JWT_SECRET);
+    req.userId = decoded.userId;
+    next();
+  } catch (error) {
+    res.status(401).json({ message: 'Authentication failed' });
+  }
+};
+
+// Get orders for logged-in customer
+router.get('/', customerAuth, async (req, res) => {
+  try {
+    const orders = await Order.find({ 'customer.userId': req.userId })
+      .sort({ createdAt: -1 });
     res.json(orders);
   } catch (error) {
     res.status(500).json({ message: 'Error fetching orders', error: error.message });
@@ -17,9 +34,12 @@ router.get('/', async (req, res) => {
 });
 
 // Get single order
-router.get('/:id', async (req, res) => {
+router.get('/:id', customerAuth, async (req, res) => {
   try {
-    const order = await Order.findById(req.params.id).populate('items.product');
+    const order = await Order.findOne({ 
+      _id: req.params.id, 
+      'customer.userId': req.userId 
+    });
     if (!order) return res.status(404).json({ message: 'Order not found' });
     res.json(order);
   } catch (error) {
@@ -27,13 +47,13 @@ router.get('/:id', async (req, res) => {
   }
 });
 
-// Create order
-router.post('/', async (req, res) => {
+// Create order (customer)
+router.post('/', customerAuth, async (req, res) => {
   try {
-    const { customer, items, paymentMethod } = req.body;
+    const { items, paymentMethod } = req.body;
 
-    if (!customer || !items || items.length === 0) {
-      return res.status(400).json({ message: 'Missing required fields: customer, items' });
+    if (!items || items.length === 0) {
+      return res.status(400).json({ message: 'Items are required' });
     }
 
     let totalAmount = 0;
@@ -43,7 +63,7 @@ router.post('/', async (req, res) => {
       let product = null;
       let productId = item.productId || item.product;
       
-      if (productId && productId.length === 24) {
+      if (productId && mongoose.Types.ObjectId.isValid(productId)) {
         try {
           product = await Product.findById(productId);
         } catch (e) {
@@ -59,6 +79,7 @@ router.post('/', async (req, res) => {
           name: product.name,
           price: product.price,
           quantity: item.quantity,
+          image: product.images?.[0] || '',
         });
       } else {
         const itemTotal = (item.price || 0) * (item.quantity || 1);
@@ -68,6 +89,7 @@ router.post('/', async (req, res) => {
           name: item.name || 'Unknown Product',
           price: item.price || 0,
           quantity: item.quantity || 1,
+          image: item.image || '',
         });
       }
     }
@@ -75,51 +97,56 @@ router.post('/', async (req, res) => {
     const count = await Order.countDocuments();
     const orderId = 'ORD' + String(count + 1).padStart(6, '0');
     
+    // Get customer info from token (we'll fetch user details if needed)
     const order = new Order({
       orderId,
-      customer,
+      customer: {
+        userId: req.userId,
+        name: req.body.customerName || '',
+        email: req.body.customerEmail || '',
+        phone: req.body.customerPhone || '',
+        address: req.body.customerAddress || '',
+      },
       items: processedItems,
-      totalAmount,
-      paymentMethod: paymentMethod || 'credit_card',
+      total: totalAmount,
+      status: 'pending',
+      paymentMethod: paymentMethod || 'cod',
     });
 
     await order.save();
     res.status(201).json(order);
   } catch (error) {
+    console.error('Create order error:', error);
     res.status(500).json({ message: 'Error creating order', error: error.message });
   }
 });
 
-// Update order status
-router.patch('/:id', async (req, res) => {
+// Update order status (customer can only cancel pending orders)
+router.patch('/:id', customerAuth, async (req, res) => {
   try {
     const { status } = req.body;
 
-    if (!status) {
-      return res.status(400).json({ message: 'Missing required field: status' });
+    const order = await Order.findOne({ 
+      _id: req.params.id, 
+      'customer.userId': req.userId 
+    });
+
+    if (!order) {
+      return res.status(404).json({ message: 'Order not found' });
     }
 
-    const order = await Order.findByIdAndUpdate(
-      req.params.id,
-      { status, updatedAt: new Date() },
-      { new: true, runValidators: true }
-    );
+    // Customer can only cancel pending orders
+    if (order.status !== 'pending' && status === 'cancelled') {
+      return res.status(400).json({ message: 'Can only cancel pending orders' });
+    }
 
-    if (!order) return res.status(404).json({ message: 'Order not found' });
+    order.status = status;
+    order.updatedAt = new Date();
+    await order.save();
+    
     res.json(order);
   } catch (error) {
     res.status(500).json({ message: 'Error updating order', error: error.message });
-  }
-});
-
-// Delete order
-router.delete('/:id', async (req, res) => {
-  try {
-    const order = await Order.findByIdAndDelete(req.params.id);
-    if (!order) return res.status(404).json({ message: 'Order not found' });
-    res.json({ message: 'Order deleted successfully' });
-  } catch (error) {
-    res.status(500).json({ message: 'Error deleting order', error: error.message });
   }
 });
 

@@ -7,6 +7,7 @@ const orderSchema = new mongoose.Schema({
     unique: true,
   },
   customer: {
+    userId: String,
     name: String,
     email: String,
     phone: String,
@@ -21,11 +22,16 @@ const orderSchema = new mongoose.Schema({
       name: String,
       price: Number,
       quantity: Number,
+      image: String,
     },
   ],
+  total: {
+    type: Number,
+    default: 0,
+  },
   totalAmount: {
     type: Number,
-    required: true,
+    default: 0,
   },
   status: {
     type: String,
@@ -34,7 +40,7 @@ const orderSchema = new mongoose.Schema({
   },
   paymentMethod: {
     type: String,
-    default: 'credit_card',
+    default: 'cod',
   },
   orderDate: {
     type: Date,
@@ -54,6 +60,9 @@ orderSchema.pre('save', async function () {
   if (!this.orderId) {
     const count = await mongoose.model('Order').countDocuments();
     this.orderId = 'ORD' + String(count + 1).padStart(6, '0');
+  }
+  if (this.total && !this.totalAmount) {
+    this.totalAmount = this.total;
   }
   if (this.isModified()) {
     this.updatedAt = new Date();
