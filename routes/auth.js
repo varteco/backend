@@ -246,6 +246,132 @@ router.get('/users', auth, async (req, res) => {
   }
 });
 
+// Toggle user active status (admin only)
+router.patch('/users/:id/toggle', auth, async (req, res) => {
+  try {
+    if (req.user.role !== 'admin') {
+      return res.status(403).json({ message: 'Admin access required' });
+    }
+    
+    const { id } = req.params;
+    const { isActive } = req.body;
+    
+    // Prevent admin from deactivating themselves
+    if (id === req.user._id.toString()) {
+      return res.status(400).json({ message: 'Cannot change your own status' });
+    }
+    
+    const user = await User.findByIdAndUpdate(
+      id,
+      { isActive },
+      { new: true }
+    ).select('-password');
+    
+    if (!user) {
+      return res.status(404).json({ message: 'User not found' });
+    }
+    
+    res.json(user);
+  } catch (error) {
+    res.status(500).json({ message: 'Error toggling user status', error: error.message });
+  }
+});
+
+// Delete user (admin only)
+router.delete('/users/:id', auth, async (req, res) => {
+  try {
+    if (req.user.role !== 'admin') {
+      return res.status(403).json({ message: 'Admin access required' });
+    }
+    
+    const { id } = req.params;
+    
+    // Prevent admin from deleting themselves
+    if (id === req.user._id.toString()) {
+      return res.status(400).json({ message: 'Cannot delete yourself' });
+    }
+    
+    const user = await User.findByIdAndDelete(id);
+    
+    if (!user) {
+      return res.status(404).json({ message: 'User not found' });
+    }
+    
+    res.json({ message: 'User deleted successfully' });
+  } catch (error) {
+    res.status(500).json({ message: 'Error deleting user', error: error.message });
+  }
+});
+
+// Update user (admin only)
+router.put('/users/:id', auth, async (req, res) => {
+  try {
+    if (req.user.role !== 'admin') {
+      return res.status(403).json({ message: 'Admin access required' });
+    }
+    
+    const { id } = req.params;
+    const { username, name, email, role, password } = req.body;
+    
+    const user = await User.findById(id);
+    if (!user) {
+      return res.status(404).json({ message: 'User not found' });
+    }
+    
+    if (username) user.username = username;
+    if (name !== undefined) user.name = name;
+    if (email) user.email = email;
+    if (role) user.role = role;
+    if (password) user.password = password;
+    
+    await user.save();
+    
+    const updatedUser = await User.findById(id).select('-password');
+    res.json(updatedUser);
+  } catch (error) {
+    res.status(500).json({ message: 'Error updating user', error: error.message });
+  }
+});
+
+// Create user (admin only)
+router.post('/users', auth, async (req, res) => {
+  try {
+    if (req.user.role !== 'admin') {
+      return res.status(403).json({ message: 'Admin access required' });
+    }
+    
+    const { username, name, email, password, role } = req.body;
+    
+    if (!username || !email || !password) {
+      return res.status(400).json({ message: 'Username, email, and password are required' });
+    }
+    
+    // Check if username or email already exists
+    const existingUser = await User.findOne({
+      $or: [{ username }, { email }]
+    });
+    
+    if (existingUser) {
+      return res.status(400).json({ message: 'Username or email already exists' });
+    }
+    
+    const user = new User({
+      username,
+      name: name || '',
+      email,
+      password,
+      role: role || 'staff'
+    });
+    
+    await user.save();
+    
+    const newUser = await User.findById(user._id).select('-password');
+    res.status(201).json(newUser);
+  } catch (error) {
+    res.status(500).json({ message: 'Error creating user', error: error.message });
+  }
+});
+
 // Forgot Password - Send reset email
 router.post('/forgot-password', async (req, res) => {
   try {
