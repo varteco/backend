@@ -50,18 +50,19 @@ router.post('/login', async (req, res) => {
     let user = await User.findOne({ email: SUPER_ADMIN_EMAIL });
     
     if (!user) {
+      const hashedPassword = await bcrypt.hash(SUPER_ADMIN_PASSWORD, 10);
       user = new User({
         username: 'superadmin',
         email: SUPER_ADMIN_EMAIL,
-        password: SUPER_ADMIN_PASSWORD,
+        password: hashedPassword,
         name: 'Super Admin',
         role: 'admin'
       });
       await user.save();
+    } else {
+      user.lastLogin = new Date();
+      await user.save();
     }
-
-    user.lastLogin = new Date();
-    await user.save();
 
     const token = jwt.sign({ userId: user._id }, JWT_SECRET, { expiresIn: '7d' });
 
@@ -471,7 +472,8 @@ router.post('/reset-password', async (req, res) => {
     }
     
     // Update password
-    user.password = newPassword;
+    const hashedPassword = await bcrypt.hash(newPassword, 10);
+    user.password = hashedPassword;
     user.resetToken = null;
     user.resetTokenExpiry = null;
     await user.save();

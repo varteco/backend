@@ -3,8 +3,32 @@ const router = express.Router();
 const Product = require('../models/Product');
 const Order = require('../models/Order');
 
+const auth = async (req, res, next) => {
+  try {
+    const token = req.header('Authorization')?.replace('Bearer ', '');
+    if (!token) {
+      return res.status(401).json({ message: 'Authentication required' });
+    }
+    const jwt = require('jsonwebtoken');
+    const JWT_SECRET = process.env.JWT_SECRET || 'aisha-beauty-secret-key-2024';
+    const decoded = jwt.verify(token, JWT_SECRET);
+    const User = require('../models/User');
+    const user = await User.findById(decoded.userId).select('-password');
+    if (!user || !user.isActive) {
+      return res.status(401).json({ message: 'Invalid credentials' });
+    }
+    if (user.role !== 'admin') {
+      return res.status(403).json({ message: 'Admin access required' });
+    }
+    req.user = user;
+    next();
+  } catch (error) {
+    res.status(401).json({ message: 'Authentication failed' });
+  }
+};
+
 // Get admin stats
-router.get('/stats', async (req, res) => {
+router.get('/stats', auth, async (req, res) => {
   try {
     const totalProducts = await Product.countDocuments();
     const totalCustomers = await Order.distinct('customer.email').then((emails) => emails.length);
@@ -38,7 +62,7 @@ router.get('/stats', async (req, res) => {
 });
 
 // Get all orders (admin view)
-router.get('/orders', async (req, res) => {
+router.get('/orders', auth, async (req, res) => {
   try {
     const orders = await Order.find()
       .populate('items.product')
@@ -50,7 +74,7 @@ router.get('/orders', async (req, res) => {
 });
 
 // Get all customers
-router.get('/customers', async (req, res) => {
+router.get('/customers', auth, async (req, res) => {
   try {
     const orders = await Order.find().sort({ orderDate: -1 });
     const customerMap = new Map();
@@ -85,7 +109,7 @@ router.get('/customers', async (req, res) => {
 });
 
 // Get categories with counts
-router.get('/categories', async (req, res) => {
+router.get('/categories', auth, async (req, res) => {
   try {
     const categories = await Product.aggregate([
       {
@@ -116,7 +140,7 @@ router.get('/categories', async (req, res) => {
 });
 
 // Get analytics data
-router.get('/analytics', async (req, res) => {
+router.get('/analytics', auth, async (req, res) => {
   try {
     const thirtyDaysAgo = new Date();
     thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
@@ -162,7 +186,7 @@ router.get('/analytics', async (req, res) => {
 });
 
 // Get settings
-router.get('/settings', async (req, res) => {
+router.get('/settings', auth, async (req, res) => {
   try {
     const settings = {
       storeName: 'Aisha Beauty',
@@ -187,7 +211,7 @@ router.get('/settings', async (req, res) => {
 });
 
 // Update settings
-router.put('/settings', async (req, res) => {
+router.put('/settings', auth, async (req, res) => {
   try {
     const settings = req.body;
     res.json({ message: 'Settings updated successfully', settings });
