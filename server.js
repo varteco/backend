@@ -14,10 +14,22 @@ connectDB();
 app.use('/api/webhook', require('./routes/webhook'));
 
 // Middleware
-app.use(cors({
-  origin: process.env.CORS_ORIGIN || '*',
-  credentials: true,
-}));
+const corsOptions = {
+  origin: function(origin, callback) {
+    const allowedOrigins = [
+    'https://aishabeautyfrontend.vercel.app',
+    'http://localhost:9000',
+    'http://localhost:8888'
+    ];
+    if (!origin || allowedOrigins.includes(origin)) {
+      callback(null, true);
+    } else {
+      callback(null, true);
+    }
+  },
+  credentials: true
+};
+app.use(cors(corsOptions));
 app.use(bodyParser.json());
 app.use(bodyParser.urlencoded({ extended: true }));
 
